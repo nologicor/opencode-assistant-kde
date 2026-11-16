@@ -76,7 +76,7 @@ KCM.SimpleKCM {
     Kirigami.FormLayout {
 
         RowLayout {
-            Kirigami.FormData.label: i18n("Porta local:")
+            Kirigami.FormData.label: i18n("Local port:")
 
             QQC2.SpinBox {
                 id: spinPort
@@ -97,7 +97,7 @@ KCM.SimpleKCM {
         }
 
         RowLayout {
-            Kirigami.FormData.label: i18n("Usuário do OpenCode:")
+            Kirigami.FormData.label: i18n("OpenCode username:")
 
             QQC2.TextField {
                 id: textUsername
@@ -107,18 +107,18 @@ KCM.SimpleKCM {
         }
 
         RowLayout {
-            Kirigami.FormData.label: i18n("Senha do OpenCode:")
+            Kirigami.FormData.label: i18n("OpenCode password:")
 
             QQC2.TextField {
                 id: textPassword
                 Layout.fillWidth: true
-                placeholderText: i18n("Opcional")
+                placeholderText: i18n("Optional")
                 echoMode: QQC2.TextField.Password
             }
         }
 
         RowLayout {
-            Kirigami.FormData.label: i18n("Largura do pop-up:")
+            Kirigami.FormData.label: i18n("Popup width:")
 
             QQC2.SpinBox {
                 id: spinPopupWidth
@@ -129,7 +129,7 @@ KCM.SimpleKCM {
         }
 
         RowLayout {
-            Kirigami.FormData.label: i18n("Altura do pop-up:")
+            Kirigami.FormData.label: i18n("Popup height:")
 
             QQC2.SpinBox {
                 id: spinPopupHeight
@@ -157,18 +157,18 @@ KCM.SimpleKCM {
             }
 
             QQC2.Button {
-                text: i18n("Abrir pasta")
+                text: i18n("Open folder")
                 onClicked: page.openPetsFolder()
             }
 
             QQC2.Button {
-                text: i18n("Atualizar")
+                text: i18n("Refresh")
                 onClicked: page.refreshPets()
             }
         }
 
         RowLayout {
-            Kirigami.FormData.label: i18n("Tamanho do pet:")
+            Kirigami.FormData.label: i18n("Pet size:")
 
             QQC2.SpinBox {
                 id: spinPetSize
@@ -179,7 +179,7 @@ KCM.SimpleKCM {
         }
 
         RowLayout {
-            Kirigami.FormData.label: i18n("Velocidade da animação (FPS):")
+            Kirigami.FormData.label: i18n("Animation speed (FPS):")
 
             QQC2.SpinBox {
                 id: spinPetFps
