@@ -24,7 +24,7 @@ It works both on the desktop and as a panel popup widget.
 - **No browser** — the web UI runs embedded in the popup, not in an external browser.
 - **Local server authentication** — the embedded web UI signs in through a one-time pairing code; credentials are never put in the URL.
 - **Settings** — port, hostname, pet selection, pet size, animation speed (FPS), and popup dimensions.
-- **Custom pets** — a button in the settings opens the pets folder (`~/.local/share/opencode-assistant-kde/pets/`); drop any OpenPets zip there (extracted as `pet.json` + `spritesheet.webp`) and refresh the list.
+- **Custom pets** — a button in the settings opens the pets folder (`~/.local/share/opencode-assistant-kde/pets/`); drop any OpenPets zip there (extracted as `pet.json` + `spritesheet.webp`) and refresh the list. This fork additionally bundles Clank, Clippy, EVE, Pickle Rick, and Wall-E; the installer copies bundled pets into the data folder without overwriting existing ones.
 
 ---
 

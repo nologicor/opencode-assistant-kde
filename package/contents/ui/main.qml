@@ -48,6 +48,17 @@ PlasmoidItem {
     property bool serverAlive: false
     property bool spawnAttempted: false
     property string petState: "idle"
+    property var sessions: []
+    property var activeSessionIds: []
+    property string latestSessionId: ""
+    property string latestSessionDirectory: ""
+    property bool permissionPending: false
+    property bool formPending: false
+
+    // Some pets use more frames than the default OpenPets atlas for an
+    // animation. Only the bundled Lobby currently needs an override.
+    readonly property var petFrameOverrides: ({ lobby: { idle: 7 } })
+    readonly property var activeFrameOverrides: petFrameOverrides[Plasmoid.configuration.petId] || ({})
 
     // The backend is started by a systemd unit that pins the server password. When the widget
     // has no password configured, read it from that unit so both sides always agree.
@@ -135,7 +146,7 @@ PlasmoidItem {
         }
     }
 
-    // ---- DataSource: pet state polling ----
+    // ---- DataSources: session activity ----
     Plasma5Support.DataSource {
         id: stateSource
         engine: "executable"
@@ -143,7 +154,72 @@ PlasmoidItem {
         onNewData: (source, data) => {
             disconnectSource(source)
             const body = typeof data["stdout"] === "string" ? data["stdout"] : ""
-            root.petState = parseState(body)
+            root.sessions = root.parseSessions(body)
+            const latest = root.latestSession()
+            const previousId = root.latestSessionId
+            root.latestSessionId = latest ? latest.id : ""
+            root.latestSessionDirectory = latest && latest.location && latest.location.directory
+                ? latest.location.directory : ""
+            if (latest && latest.id !== previousId) {
+                root.permissionPending = false
+                root.formPending = false
+            }
+            if (latest) {
+                const auth = root.curlAuthArg()
+                const id = encodeURIComponent(latest.id)
+                const dir = root.latestSessionDirectory
+                const dirArg = dir ? "?directory=" + encodeURIComponent(dir) : ""
+                activeSource.connectSource(`curl -s --max-time 2 ${auth}"${root.serverUrl}/api/session/active${dirArg}"`)
+                permissionSource.connectSource(`curl -s --max-time 2 ${auth}"${root.serverUrl}/api/session/${id}/permission"`)
+                formSource.connectSource(`curl -s --max-time 2 ${auth}"${root.serverUrl}/api/session/${id}/form"`)
+            } else {
+                root.activeSessionIds = []
+                root.permissionPending = false
+                root.formPending = false
+            }
+            root.updatePetState()
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: activeSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: (source, data) => {
+            disconnectSource(source)
+            const body = typeof data["stdout"] === "string" ? data["stdout"] : ""
+            try {
+                const payload = JSON.parse(body)
+                const active = payload && payload.data ? payload.data : {}
+                root.activeSessionIds = active && typeof active === "object" ? Object.keys(active) : []
+            } catch (e) {
+                root.activeSessionIds = []
+            }
+            root.updatePetState()
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: permissionSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: (source, data) => {
+            disconnectSource(source)
+            const body = typeof data["stdout"] === "string" ? data["stdout"] : ""
+            root.permissionPending = root.hasItems(body)
+            root.updatePetState()
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: formSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: (source, data) => {
+            disconnectSource(source)
+            const body = typeof data["stdout"] === "string" ? data["stdout"] : ""
+            root.formPending = root.hasItems(body)
+            root.updatePetState()
         }
     }
 
@@ -262,6 +338,72 @@ PlasmoidItem {
         console.log("[assistant] spawn: opencode serve --hostname", host, "--port", port, root.serverPassword ? "(auth)" : "(no auth)")
     }
 
+    function parseSessions(body) {
+        try {
+            const payload = JSON.parse(body)
+            const list = Array.isArray(payload) ? payload : (payload && payload.data)
+            return Array.isArray(list) ? list : []
+        } catch (e) {
+            return []
+        }
+    }
+
+    function hasItems(body) {
+        try {
+            const payload = JSON.parse(body)
+            return Array.isArray(payload && payload.data) && payload.data.length > 0
+        } catch (e) {
+            return false
+        }
+    }
+
+    function latestSession() {
+        let list = root.sessions
+        if (!Array.isArray(list) || list.length === 0) return null
+        if (Array.isArray(root.activeSessionIds) && root.activeSessionIds.length > 0) {
+            const active = list.filter(s => root.activeSessionIds.indexOf(s.id) >= 0)
+            if (active.length > 0) list = active
+        }
+        let latest = null
+        for (const s of list) {
+            const t = s && s.time && s.time.updated ? s.time.updated : 0
+            const latestTime = latest && latest.time && latest.time.updated ? latest.time.updated : 0
+            if (!latest || t > latestTime) latest = s
+        }
+        return latest
+    }
+
+    function updatePetState() {
+        if (!root.serverAlive) {
+            root.petState = "error"
+            return
+        }
+        if (root.permissionPending || root.formPending) {
+            root.petState = "waiting"
+            return
+        }
+        const latest = root.latestSession()
+        if (!latest) {
+            root.petState = "idle"
+            return
+        }
+        const now = Date.now()
+        const t = latest.time || {}
+        if (Array.isArray(root.activeSessionIds) && root.activeSessionIds.indexOf(latest.id) >= 0) {
+            root.petState = (now - (t.updated || 0) < 3000) ? "streaming" : "thinking"
+            return
+        }
+        if (latest.outcome === "failed" && t.idle && now - t.idle < 5000) {
+            root.petState = "error"
+            return
+        }
+        if (latest.outcome === "succeeded" && t.idle && now - t.idle < 5000) {
+            root.petState = "success"
+            return
+        }
+        root.petState = "idle"
+    }
+
     function pollHealth() {
         const cmd = `curl -s -o /dev/null -w "%{http_code}" --max-time 2 ${root.curlAuthArg()}"${serverUrl}/"`
         healthSource.connectSource(cmd)
@@ -270,26 +412,9 @@ PlasmoidItem {
     function pollState() {
         if (!serverAlive) return
         // /session serves the web UI shell; the session list lives under /api/session.
-        const cmd = `curl -s --max-time 2 ${root.curlAuthArg()}"${serverUrl}/api/session"`
-        stateSource.connectSource(cmd)
-    }
-
-    function parseState(body) {
-        try {
-            const payload = JSON.parse(body)
-            const sessions = Array.isArray(payload) ? payload : payload.data
-            if (!Array.isArray(sessions) || sessions.length === 0) return "idle"
-            const now = Date.now()
-            let latest = 0
-            for (const s of sessions) {
-                const t = s.time && s.time.updated ? s.time.updated : 0
-                if (t > latest) latest = t
-            }
-            if (latest > 0 && (now - latest) < 3000) return "streaming"
-            return "idle"
-        } catch (e) {
-            return "idle"
-        }
+        // The active/permission/form checks start from the session response so they
+        // use the latest session's directory and id.
+        stateSource.connectSource(`curl -s --max-time 2 ${root.curlAuthArg()}"${serverUrl}/api/session"`)
     }
 
     function openWeb() {
@@ -446,6 +571,7 @@ PlasmoidItem {
     onServerAliveChanged: {
         if (serverAlive) {
             stateTimer.start()
+            pollState()
         } else {
             stateTimer.stop()
             root.petState = "error"
@@ -568,6 +694,7 @@ PlasmoidItem {
             fps: Plasmoid.configuration.petFps
             source: root.petSource
             petState: root.petState
+            frameOverrides: root.activeFrameOverrides
 
             // resizing the pet (scroll wheel) can push it outside the widget
             onWidthChanged: compactItem.handleSizeChanged()

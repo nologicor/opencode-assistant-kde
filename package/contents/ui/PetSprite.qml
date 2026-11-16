@@ -21,6 +21,7 @@ Item {
     property url source: ""          // spritesheet URL (local file)
     property int size: 96            // display width in px (height auto-scaled)
     property string petState: "idle" // idle | thinking | streaming | waiting | success | error | waving
+    property var frameOverrides: ({}) // animation name -> frame count, for pets that differ from the default atlas
     property bool reducedMotion: false
 
     // ---- animation table: name -> { row, frames } ----
@@ -91,10 +92,12 @@ Item {
         if (!force && currentAnim === name) return
         if (reducedMotion) name = "idle"
         const a = anims[name] || anims.idle
+        const override = root.frameOverrides ? root.frameOverrides[name] : undefined
+        const frames = override !== undefined ? override : a.frames
         currentAnim = name
         oneShot = (loop === undefined) ? isOneShot(name) : !loop
         sprite.frameY = a.row * cellH
-        sprite.frameCount = a.frames
+        sprite.frameCount = frames
         sprite.loops = oneShot ? 1 : Animation.Infinite
         // toggle running to reset currentFrame to 0 (start() resets it)
         sprite.running = false

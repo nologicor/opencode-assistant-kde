@@ -100,6 +100,23 @@ fi
 echo "==> Preparando diretório de dados: $DATA_DIR"
 mkdir -p "$DATA_DIR/pets"
 
+# Copy pets bundled with the package into the data dir, without overwriting
+# a pet the user already has there.
+BUNDLED_PETS="$PKG_DIR/contents/ui/pets"
+if [ -d "$BUNDLED_PETS" ]; then
+  for PET_SRC in "$BUNDLED_PETS"/*/; do
+    [ -d "$PET_SRC" ] || continue
+    PET_ID="$(basename "$PET_SRC")"
+    PET_DST="$DATA_DIR/pets/$PET_ID"
+    if [ -f "$PET_SRC/pet.json" ] && [ -f "$PET_SRC/spritesheet.webp" ] &&
+       { [ ! -f "$PET_DST/pet.json" ] || [ ! -f "$PET_DST/spritesheet.webp" ]; }; then
+      mkdir -p "$PET_DST"
+      cp -f "$PET_SRC/pet.json" "$PET_SRC/spritesheet.webp" "$PET_DST/"
+      echo "==> Pet '$PET_ID' copiado do pacote"
+    fi
+  done
+fi
+
 PET_URL="${OPENCODE_ASSISTANT_PET_URL:-https://zip.openpets.dev/pets/tux-de2f300f/tux.zip}"
 PET_DIR="$DATA_DIR/pets/tux"
 if [ -f "$PET_DIR/spritesheet.webp" ] && [ -f "$PET_DIR/pet.json" ]; then
