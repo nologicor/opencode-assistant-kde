@@ -20,6 +20,9 @@ KCM.SimpleKCM {
     property alias cfg_petFps: spinPetFps.value
 
     property string selectedPet: "tux"
+    // Pets shipped inside the plasmoid, used as a fallback when the installer
+    // has not copied them into the data directory yet.
+    property string bundledPetsDir: Qt.resolvedUrl("pets").toString().replace(/^file:\/\//, "")
 
     ListModel {
         id: petModel
@@ -56,8 +59,10 @@ KCM.SimpleKCM {
     }
 
     function refreshPets() {
-        // list pet folders that have a spritesheet, using $HOME (reliable in KCM)
-        const cmd = `PETS_DIR="$HOME/.local/share/opencode-assistant-kde/pets"; mkdir -p "$PETS_DIR"; for d in "$PETS_DIR"/*/; do [ -f "$d/spritesheet.webp" ] && echo "$(basename "$d")"; done`
+        // List pet folders that have a spritesheet, both from the data dir and
+        // from the bundle. $HOME is reliable in the KCM; the bundle path is
+        // resolved from this QML file.
+        const cmd = `PETS_DIR="$HOME/.local/share/opencode-assistant-kde/pets"; mkdir -p "$PETS_DIR"; for base in "$PETS_DIR" "${page.bundledPetsDir}"; do [ -d "$base" ] || continue; for d in "$base"/*/; do [ -f "$d/spritesheet.webp" ] && echo "$(basename "$d")"; done; done | sort -u`
         console.log("[assistant-config] refreshPets cmd=", cmd)
         petsSource.connectSource(cmd)
     }
