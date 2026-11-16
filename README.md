@@ -22,7 +22,7 @@ It works both on the desktop and as a panel popup widget.
 - **Popup anchored to the pet** — click the pet to open a `WebEngineView` popup that loads the OpenCode web UI served by `opencode serve` on localhost. The popup opens near the pet's head and follows it when the pet moves.
 - **Resizable popup** — drag the bottom-right handle to resize the popup (width/height are remembered).
 - **No browser** — the web UI runs embedded in the popup, not in an external browser.
-- **Clean environment** — the server is spawned with a sanitized environment (desktop-app leftovers are unset) so it runs unauthenticated with the embedded web UI enabled.
+- **Local server authentication** — the embedded web UI signs in through a one-time pairing code; credentials are never put in the URL.
 - **Settings** — port, hostname, pet selection, pet size, animation speed (FPS), and popup dimensions.
 - **Custom pets** — a button in the settings opens the pets folder (`~/.local/share/opencode-assistant-kde/pets/`); drop any OpenPets zip there (extracted as `pet.json` + `spritesheet.webp`) and refresh the list.
 
@@ -82,6 +82,52 @@ opencode auth login
 
 ---
 
+## OpenCode 2 support (this fork)
+
+Upstream `0.1.0` uses the OpenCode 1.x server API. OpenCode 2 changed the API and added authentication, so this branch adds:
+
+- a user service, `opencode-web.service`, that runs `opencode serve` on localhost;
+- reading the server password from that unit when the widget has none;
+- pairing the embedded web UI with `POST /api/pair` and `/auth/connect/<code>`;
+- a named `WebEngineProfile` so the session cookie survives restarts;
+- polling `GET /api/session` for the pet state.
+
+### Install the user service
+
+```bash
+./contrib/systemd/install.sh
+```
+
+The script finds `opencode` in `PATH`, generates a random password, writes `~/.config/systemd/user/opencode-web.service` with mode `0600`, and starts it on port `3171`.
+
+Configure the widget:
+
+| Setting | Value |
+| --- | --- |
+| Hostname | `127.0.0.1` |
+| Port | `3171` |
+| Username | `opencode` |
+| Password | leave blank; the widget reads it from the unit |
+
+Leave **Password** blank so the widget reads it from the unit. If you set one in the widget, it must match `OPENCODE_SERVER_PASSWORD`.
+
+To use another port:
+
+```bash
+OPENCODE_WEB_PORT=3172 ./contrib/systemd/install.sh
+```
+
+The service binds to `127.0.0.1` only. The password is stored in the user unit (mode `0600`) and in a private curl config file at `~/.local/share/opencode-assistant-kde/curl-auth.conf` (mode `0600`), not in this repository.
+
+Check it with:
+
+```bash
+systemctl --user status opencode-web.service
+journalctl --user -u opencode-web.service -b --no-pager
+```
+
+---
+
 ## 🏗 Architecture
 
 ```
@@ -101,9 +147,10 @@ KDE Plasma 6 (plasmashell)
 ```
 
 - **Plasmoid**: pure QML (`main.qml` + `PetSprite.qml`). No Node.js backend.
-- **Server**: `opencode serve --hostname 127.0.0.1 --port <port>` — spawned on-demand by the plasmoid with `env -u` to unset desktop-app leftovers (`OPENCODE_SERVER_PASSWORD`, `OPENCODE_DISABLE_EMBEDDED_WEB_UI`, `OPENCODE_CLIENT`, `XDG_STATE_HOME`).
+- **Server**: `opencode serve --hostname 127.0.0.1 --port <port>` — spawned on demand by the plasmoid, or supplied by the `opencode-web.service` user unit. The password comes from the widget settings or that unit.
+- **Web UI authentication**: the widget asks the server for a one-time pairing code with `POST /api/pair`, then opens `/auth/connect/<code>`. That sets the session cookie before redirecting to the web UI. A named `WebEngineProfile` keeps the cookie across restarts.
 - **Pets**: OpenPets format (`pet.json` + `spritesheet.webp`, 8×9 atlas, 192×208 cells). Bundled in `package/contents/ui/pets/` (Tux + Tater).
-- **State polling**: the plasmoid polls `GET /session` every 3 s to detect active sessions and animate the pet accordingly.
+- **State polling**: the plasmoid polls `GET /api/session` every 3 s to detect active sessions and animate the pet accordingly.
 - **Icon**: `icons/hicolor/` holds the widget icon (`opencode-assistant`), a pixel-art Tux derived from the pet spritesheet. `scripts/install.sh` copies it into the user's hicolor theme so the widget explorer can resolve it; regenerate it with `python3 scripts/gen-icon.py`.
 
 ---

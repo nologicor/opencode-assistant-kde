@@ -25,14 +25,33 @@ PlasmoidItem {
     // ---- config ----
     readonly property string serverHost: Plasmoid.configuration.hostname
     readonly property int serverPort: Plasmoid.configuration.port
-    readonly property string serverUsername: Plasmoid.configuration.username
-    readonly property string serverPassword: Plasmoid.configuration.password
+    readonly property string serverUsername: Plasmoid.configuration.username || "opencode"
+    readonly property bool loopbackHost: ["127.0.0.1", "localhost", "::1", "[::1]"].indexOf(serverHost) >= 0
+    readonly property string serverPassword: Plasmoid.configuration.password || (loopbackHost ? unitPassword : "")
     readonly property string serverUrl: `http://${serverHost}:${serverPort}`
+
+    // The web UI keeps its sign-in in a cookie. A WebEngineView without a named profile is
+    // off-the-record, so that cookie dies with the widget and the password is asked again after
+    // every restart. A named profile keeps it on disk instead.
+    WebEngineProfile {
+        id: webProfile
+        storageName: "opencode-assistant"
+        persistentCookiesPolicy: WebEngineProfile.ForcePersistentCookies
+    }
+
+    // Credentials are not put in the URL. The widget signs in the way a browser does: it mints
+    // a one-time pairing code with the server password and opens /auth/connect/<code>, which
+    // sets the 30-day session cookie before redirecting to the web UI.
+    readonly property string webUrl: serverUrl + "/"
 
     // ---- runtime state ----
     property bool serverAlive: false
     property bool spawnAttempted: false
     property string petState: "idle"
+
+    // The backend is started by a systemd unit that pins the server password. When the widget
+    // has no password configured, read it from that unit so both sides always agree.
+    property string unitPassword: ""
 
     // ---- popup size ----
     // The configuration is the single source of truth; a live drag only shadows
@@ -58,6 +77,10 @@ PlasmoidItem {
         const path = p.startsWith("file://") ? p.substring(7) : p
         return path + "/opencode-assistant-kde"
     }
+
+    // curl reads the server password from this private config file, so it never
+    // appears in the process arguments.
+    readonly property string authFile: dataDir + "/curl-auth.conf"
 
     // ---- pet source: data dir first, package fallback ----
     property url petSource: Qt.resolvedUrl("pets/" + Plasmoid.configuration.petId + "/spritesheet.webp")
@@ -99,6 +122,19 @@ PlasmoidItem {
         }
     }
 
+    // ---- DataSource: pairing code for the embedded web UI ----
+    Plasma5Support.DataSource {
+        id: pairSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: (source, data) => {
+            disconnectSource(source)
+            const out = typeof data["stdout"] === "string" ? data["stdout"] : ""
+            const match = /"code":"([^"]+)"/.exec(out)
+            finishWebUi(match ? match[1] : "")
+        }
+    }
+
     // ---- DataSource: pet state polling ----
     Plasma5Support.DataSource {
         id: stateSource
@@ -108,6 +144,34 @@ PlasmoidItem {
             disconnectSource(source)
             const body = typeof data["stdout"] === "string" ? data["stdout"] : ""
             root.petState = parseState(body)
+        }
+    }
+
+    // ---- DataSource: server password of the backend unit ----
+    Plasma5Support.DataSource {
+        id: unitSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: (source, data) => {
+            disconnectSource(source)
+            const out = typeof data["stdout"] === "string" ? data["stdout"] : ""
+            const match = /OPENCODE_SERVER_PASSWORD=(\S+)/.exec(out)
+            if (match) {
+                root.unitPassword = match[1]
+                console.log("[assistant] backend password taken from the systemd unit")
+                root.refreshAuthFile()
+            }
+        }
+    }
+
+    // Writes the curl auth file from the systemd unit without putting the
+    // password on any command line.
+    Plasma5Support.DataSource {
+        id: authFileSource
+        engine: "executable"
+        connectedSources: []
+        onNewData: (source, data) => {
+            disconnectSource(source)
         }
     }
 
@@ -126,6 +190,18 @@ PlasmoidItem {
         onTriggered: pollState()
     }
 
+    // Last resort when no password is available to sign in with.
+    Timer {
+        id: fallbackTimer
+        interval: 3000
+        onTriggered: {
+            if (root.webLoaded || !root.serverAlive) return
+            root.webLoaded = true
+            console.log("[assistant] no server password; opening web UI without sign-in")
+            if (webView) webView.url = root.webUrl
+        }
+    }
+
     // ---- helpers ----
     function homeDir() {
         const p = StandardPaths.writableLocation(StandardPaths.HomeLocation).toString()
@@ -137,13 +213,34 @@ PlasmoidItem {
         return `${home}/.opencode/bin/opencode`
     }
 
+    // Rebuild the private curl auth file from the unit. The password is never
+    // part of this command line: systemctl's output is piped through sed.
+    function refreshAuthFile() {
+        const cmd = `umask 077; mkdir -p "${dataDir}"; printf 'user = "opencode:%s"\\n' "$(systemctl --user show opencode-web.service -p Environment --value | sed -n 's/.*OPENCODE_SERVER_PASSWORD=\\([^ ]*\\).*/\\1/p')" > "${authFile}"; chmod 600 "${authFile}"`
+        authFileSource.connectSource(cmd)
+    }
+
+    // Prefer the 0600 curl config file so the password never appears in argv.
+    // A password typed into the widget still has to use -u for now.
+    function curlAuthArg() {
+        if (Plasmoid.configuration.password) {
+            return `-u "${serverUsername}:${Plasmoid.configuration.password}" `
+        }
+        if (root.unitPassword && root.loopbackHost) {
+            return `-K "${root.authFile}" `
+        }
+        return ""
+    }
+
     function spawnServer() {
         if (spawnAttempted) return
         spawnAttempted = true
 
         const home = homeDir()
         const port = Plasmoid.configuration.port
-        const host = Plasmoid.configuration.hostname
+        // A spawned server is always local, even if the settings point at a
+        // remote host.
+        const host = "127.0.0.1"
         const username = Plasmoid.configuration.username
         const password = Plasmoid.configuration.password
         const logPath = dataDir + "/opencode-web.log"
@@ -157,28 +254,30 @@ PlasmoidItem {
         }
         if (password && password !== "") {
             envCmd += ` OPENCODE_SERVER_PASSWORD="${password}"`
+        } else if (root.unitPassword) {
+            envCmd += ` OPENCODE_SERVER_PASSWORD="$(sed -n 's/^user = "opencode:\\(.*\\)"$/\\1/p' "${root.authFile}" 2>/dev/null)"`
         }
-        const cmd = `BIN="${bin}"; [ -x "$BIN" ] || BIN="${home}/.local/bin/opencode"; [ -x "$BIN" ] || BIN="$(command -v opencode || echo opencode)"; ${envCmd} setsid nohup "$BIN" serve --hostname ${host} --port ${port} > "${logPath}" 2>&1 &`
+        const cmd = `umask 077; BIN="${bin}"; [ -x "$BIN" ] || BIN="${home}/.local/bin/opencode"; [ -x "$BIN" ] || BIN="$(command -v opencode || echo opencode)"; ${envCmd} setsid nohup "$BIN" serve --hostname ${host} --port ${port} > "${logPath}" 2>&1 &`
         execSource.connectSource(cmd)
-        console.log("[assistant] spawn:", cmd)
+        console.log("[assistant] spawn: opencode serve --hostname", host, "--port", port, root.serverPassword ? "(auth)" : "(no auth)")
     }
 
     function pollHealth() {
-        const auth = (serverUsername && serverPassword) ? `-u "${serverUsername}:${serverPassword}" ` : ""
-        const cmd = `curl -s -o /dev/null -w "%{http_code}" --max-time 2 ${auth}"${serverUrl}/"`
+        const cmd = `curl -s -o /dev/null -w "%{http_code}" --max-time 2 ${root.curlAuthArg()}"${serverUrl}/"`
         healthSource.connectSource(cmd)
     }
 
     function pollState() {
         if (!serverAlive) return
-        const auth = (serverUsername && serverPassword) ? `-u "${serverUsername}:${serverPassword}" ` : ""
-        const cmd = `curl -s --max-time 2 ${auth}"${serverUrl}/session"`
+        // /session serves the web UI shell; the session list lives under /api/session.
+        const cmd = `curl -s --max-time 2 ${root.curlAuthArg()}"${serverUrl}/api/session"`
         stateSource.connectSource(cmd)
     }
 
     function parseState(body) {
         try {
-            const sessions = JSON.parse(body)
+            const payload = JSON.parse(body)
+            const sessions = Array.isArray(payload) ? payload : payload.data
             if (!Array.isArray(sessions) || sessions.length === 0) return "idle"
             const now = Date.now()
             let latest = 0
@@ -199,6 +298,42 @@ PlasmoidItem {
         if (!serverAlive && !spawnAttempted) {
             spawnServer()
         }
+        openWebUi()
+    }
+
+    // Sign in before showing the UI: the app shell does not reliably consume ?auth_token=, and a
+    // plain load lands on the "Authenticate" screen. Minting a pairing code and opening its
+    // /auth/connect link sets the session cookie, exactly like `opencode pair` in a browser.
+    property bool webLoaded: false
+    property bool pairing: false
+
+    function openWebUi() {
+        if (root.webLoaded || root.pairing || !root.serverAlive) return
+        // Only pair while the popup is open: codes are single-use and expire after five minutes,
+        // and a hidden WebEngineView may defer the navigation until it is shown.
+        if (!chatDialog || !chatDialog.visible) return
+        if (!root.serverPassword) {
+            // The password is read asynchronously; give it a moment before showing a sign-in screen.
+            fallbackTimer.start()
+            return
+        }
+        fallbackTimer.stop()
+        root.pairing = true
+        const cmd = `curl -s --max-time 3 ${root.curlAuthArg()}-X POST "${root.serverUrl}/api/pair"`
+        pairSource.connectSource(cmd)
+    }
+
+    function finishWebUi(code) {
+        root.pairing = false
+        if (!webView) return
+        root.webLoaded = true
+        if (!code) {
+            console.log("[assistant] pairing code not issued; opening web UI without sign-in")
+            webView.url = root.webUrl
+            return
+        }
+        console.log("[assistant] opening web UI through the pairing link")
+        webView.url = root.serverUrl + "/auth/connect/" + code
     }
 
     // ---- popup resizing ----
@@ -297,6 +432,10 @@ PlasmoidItem {
     Component.onCompleted: {
         healthTimer.start()
         pollHealth()
+        // Pick up the password of the systemd unit that runs the backend, if the widget has none.
+        if (!Plasmoid.configuration.password) {
+            unitSource.connectSource("systemctl --user show opencode-web.service -p Environment --value")
+        }
     }
 
     Component.onDestruction: {
@@ -312,6 +451,9 @@ PlasmoidItem {
             root.petState = "error"
         }
     }
+
+    // The password arrives asynchronously; sign in as soon as it is known.
+    onServerPasswordChanged: openWebUi()
 
     // ---- animated pet (draggable within the widget) ----
     Item {
@@ -634,9 +776,11 @@ PlasmoidItem {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                url: root.serverAlive ? root.serverUrl : "about:blank"
+                profile: webProfile
+                url: "about:blank"
                 visible: root.serverAlive
                 backgroundColor: "#1e1e2e"
+
 
                 onNewWindowRequested: (request) => {
                     Qt.openUrlExternally(request.url)
