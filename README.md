@@ -117,7 +117,7 @@ To use another port:
 OPENCODE_WEB_PORT=3172 ./contrib/systemd/install.sh
 ```
 
-The service binds to `127.0.0.1` only. The password is stored in the user unit (mode `0600`), not in this repository.
+The service binds to `127.0.0.1` only. The password is stored in the user unit (mode `0600`) and in a private curl config file at `~/.local/share/opencode-assistant-kde/curl-auth.conf` (mode `0600`), not in this repository.
 
 Check it with:
 
