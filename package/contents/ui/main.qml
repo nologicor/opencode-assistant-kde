@@ -6,6 +6,7 @@ import QtWebEngine
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.plasma.plasmoid
+import org.kde.ksvg as KSvg
 
 PlasmoidItem {
     id: root
@@ -64,9 +65,9 @@ PlasmoidItem {
     readonly property int popupW: popupResizing ? popupDragW : Plasmoid.configuration.popupWidth
     readonly property int popupH: popupResizing ? popupDragH : Plasmoid.configuration.popupHeight
 
-    // The active Layan theme uses an 8px dialog border. The popup draws its own
-    // frame so this can be half of that thickness instead of being fixed by the
-    // theme.
+    // The Layan theme uses an 8px dialog border. The popup draws the theme
+    // background itself and insets its content by half that thickness, so the
+    // visible border follows the system theme but stays 4px wide.
     readonly property int popupBorderWidth: 4
     readonly property bool alwaysOnTop: Plasmoid.configuration.alwaysOnTop !== false
 
@@ -749,17 +750,22 @@ PlasmoidItem {
             }
         }
 
-        mainItem: Rectangle {
+        mainItem: Item {
             id: chatContent
             // Keep the configured popup size as the content size and add the
-            // custom border around it.
+            // themed border around it.
             width: root.popupW + 2 * root.popupBorderWidth
             height: root.popupH + 2 * root.popupBorderWidth
-            color: "#1e1e2e"
-            radius: 8
-            border.width: root.popupBorderWidth
-            border.color: "#313244"
             clip: true
+
+            // Use the same Plasma theme frame as a regular dialog. The content
+            // is inset by 4px, so it covers the inner half of the theme's 8px
+            // border; the visible outer half keeps the system theme styling.
+            KSvg.FrameSvgItem {
+                anchors.fill: parent
+                imagePath: "dialogs/background"
+                prefix: "solid/"
+            }
 
             // slim header: title + status + close
             Rectangle {
