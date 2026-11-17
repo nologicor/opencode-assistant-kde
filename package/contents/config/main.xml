@@ -31,6 +31,12 @@
       <label>Keep the popup above other windows.</label>
       <default>true</default>
     </entry>
+    <entry name="webViewOpacity" type="Int">
+      <label>Opacity of the embedded web view, in percent.</label>
+      <default>100</default>
+      <min>20</min>
+      <max>100</max>
+    </entry>
     <entry name="petId" type="String">
       <label>Identifier of the pet shown in the widget.</label>
       <default>tux</default>

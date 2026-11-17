@@ -70,6 +70,7 @@ PlasmoidItem {
     // visible border follows the system theme but stays 4px wide.
     readonly property int popupBorderWidth: 4
     readonly property bool alwaysOnTop: Plasmoid.configuration.alwaysOnTop !== false
+    readonly property real webViewOpacity: Math.max(0.2, Math.min(1, (Plasmoid.configuration.webViewOpacity || 100) / 100))
 
     // resize gesture origin (screen coordinates) and starting size
     property real resizeOriginX: 0
@@ -758,13 +759,72 @@ PlasmoidItem {
             height: root.popupH + 2 * root.popupBorderWidth
             clip: true
 
-            // Use the same Plasma theme frame as a regular dialog. The content
-            // is inset by 4px, so it covers the inner half of the theme's 8px
-            // border; the visible outer half keeps the system theme styling.
-            KSvg.FrameSvgItem {
-                anchors.fill: parent
-                imagePath: "dialogs/background"
-                prefix: "solid/"
+            // Draw only the outer half of the Plasma theme frame. The center
+            // stays transparent so the web view opacity reveals the desktop.
+            Item {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: root.popupBorderWidth
+                clip: true
+
+                KSvg.FrameSvgItem {
+                    width: chatContent.width
+                    height: chatContent.height
+                    imagePath: "dialogs/background"
+                    prefix: "solid/"
+                }
+            }
+
+            Item {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: root.popupBorderWidth
+                clip: true
+
+                KSvg.FrameSvgItem {
+                    y: -(chatContent.height - root.popupBorderWidth)
+                    width: chatContent.width
+                    height: chatContent.height
+                    imagePath: "dialogs/background"
+                    prefix: "solid/"
+                }
+            }
+
+            Item {
+                anchors.top: parent.top
+                anchors.topMargin: root.popupBorderWidth
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.popupBorderWidth
+                anchors.left: parent.left
+                width: root.popupBorderWidth
+                clip: true
+
+                KSvg.FrameSvgItem {
+                    width: chatContent.width
+                    height: chatContent.height
+                    imagePath: "dialogs/background"
+                    prefix: "solid/"
+                }
+            }
+
+            Item {
+                anchors.top: parent.top
+                anchors.topMargin: root.popupBorderWidth
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.popupBorderWidth
+                anchors.right: parent.right
+                width: root.popupBorderWidth
+                clip: true
+
+                KSvg.FrameSvgItem {
+                    x: -(chatContent.width - root.popupBorderWidth)
+                    width: chatContent.width
+                    height: chatContent.height
+                    imagePath: "dialogs/background"
+                    prefix: "solid/"
+                }
             }
 
             // slim header: title + status + close
@@ -839,6 +899,7 @@ PlasmoidItem {
                 profile: webProfile
                 url: "about:blank"
                 visible: root.serverAlive
+                opacity: root.webViewOpacity
                 backgroundColor: "#1e1e2e"
 
 
@@ -857,6 +918,7 @@ PlasmoidItem {
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: root.popupBorderWidth
                 visible: !root.serverAlive
+                opacity: root.webViewOpacity
                 color: "#1e1e2e"
                 z: 10
 
