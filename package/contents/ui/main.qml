@@ -205,6 +205,21 @@ PlasmoidItem {
         onTriggered: pollState()
     }
 
+    // QtWebEngine stops painting while its window is hidden. Force a frame
+    // after the popup is shown again, otherwise the web content can stay blank
+    // until the pointer moves over it.
+    Timer {
+        id: webViewRepaintTimer
+        interval: 120
+        onTriggered: {
+            if (webView) {
+                webView.update()
+                webView.forceActiveFocus()
+            }
+            chatDialog.update()
+        }
+    }
+
     // Last resort when no password is available to sign in with.
     Timer {
         id: fallbackTimer
@@ -758,6 +773,11 @@ PlasmoidItem {
             if (visible) {
                 requestActivate()
                 raise()
+                webViewRepaintTimer.restart()
+                Qt.callLater(function() {
+                    if (webView) webView.update()
+                    chatDialog.update()
+                })
             }
         }
 
