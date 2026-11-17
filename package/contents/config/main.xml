@@ -37,6 +37,10 @@
       <min>20</min>
       <max>100</max>
     </entry>
+    <entry name="blurBackground" type="Bool">
+      <label>Blur the desktop behind the popup.</label>
+      <default>false</default>
+    </entry>
     <entry name="petId" type="String">
       <label>Identifier of the pet shown in the widget.</label>
       <default>tux</default>

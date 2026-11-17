@@ -23,6 +23,7 @@ It works both on the desktop and as a panel popup widget.
 - **Resizable popup** — drag the bottom-right handle to resize the popup (width/height are remembered).
 - **Optional always-on-top** — keep the OpenCode panel above other windows, or let it go behind them; clicking the pet raises it again.
 - **Adjustable web view opacity** — make the embedded OpenCode panel translucent so the desktop shows through.
+- **Optional background blur** — blur the desktop behind the panel using the Plasma/KWin blur effect.
 - **No browser** — the web UI runs embedded in the popup, not in an external browser.
 - **Local server authentication** — the embedded web UI signs in through a one-time pairing code; credentials are never put in the URL.
 - **Settings** — port, hostname, pet selection, pet size, animation speed (FPS), and popup dimensions.

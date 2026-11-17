@@ -71,6 +71,13 @@ PlasmoidItem {
     readonly property int popupBorderWidth: 4
     readonly property bool alwaysOnTop: Plasmoid.configuration.alwaysOnTop !== false
     readonly property real webViewOpacity: Math.max(0.2, Math.min(1, (Plasmoid.configuration.webViewOpacity || 100) / 100))
+    readonly property bool blurBackground: Plasmoid.configuration.blurBackground === true
+
+    // The Plasma dialog background has its own margins. When blur is enabled
+    // the dialog draws that background itself, so shift the content outwards by
+    // the difference to keep the visible border at popupBorderWidth.
+    readonly property int themeFrameMargin: chatDialog && chatDialog.margins ? Math.round(chatDialog.margins.left) : 0
+    readonly property int contentInset: popupBorderWidth - themeFrameMargin
 
     // resize gesture origin (screen coordinates) and starting size
     property real resizeOriginX: 0
@@ -741,7 +748,10 @@ PlasmoidItem {
         type: PlasmaCore.Dialog.AppletPopup
         flags: Qt.Dialog
         hideOnWindowDeactivate: false
-        backgroundHints: PlasmaCore.Dialog.NoBackground
+        // StandardBackground draws the Plasma theme frame and enables KWin
+        // blur-behind. NoBackground keeps the center transparent when blur is
+        // disabled.
+        backgroundHints: root.blurBackground ? PlasmaCore.Dialog.StandardBackground : PlasmaCore.Dialog.NoBackground
         visible: false
 
         onVisibleChanged: {
@@ -753,20 +763,24 @@ PlasmoidItem {
 
         mainItem: Item {
             id: chatContent
-            // Keep the configured popup size as the content size and add the
-            // themed border around it.
-            width: root.popupW + 2 * root.popupBorderWidth
-            height: root.popupH + 2 * root.popupBorderWidth
-            clip: true
+            // Keep the configured popup size as the content size. When blur is
+            // enabled the themed dialog adds its own margins around mainItem,
+            // so subtract them and let the content overlap the inner half of the
+            // theme border.
+            width: root.popupW + 2 * root.popupBorderWidth - 2 * root.themeFrameMargin
+            height: root.popupH + 2 * root.popupBorderWidth - 2 * root.themeFrameMargin
+            clip: false
 
-            // Draw only the outer half of the Plasma theme frame. The center
-            // stays transparent so the web view opacity reveals the desktop.
+            // Draw only the outer half of the Plasma theme frame when blur is
+            // off. With blur on, the dialog's own StandardBackground draws the
+            // full frame and KWin blurs what is behind it.
             Item {
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
                 height: root.popupBorderWidth
                 clip: true
+                visible: !root.blurBackground
 
                 KSvg.FrameSvgItem {
                     width: chatContent.width
@@ -782,6 +796,7 @@ PlasmoidItem {
                 anchors.right: parent.right
                 height: root.popupBorderWidth
                 clip: true
+                visible: !root.blurBackground
 
                 KSvg.FrameSvgItem {
                     y: -(chatContent.height - root.popupBorderWidth)
@@ -800,6 +815,7 @@ PlasmoidItem {
                 anchors.left: parent.left
                 width: root.popupBorderWidth
                 clip: true
+                visible: !root.blurBackground
 
                 KSvg.FrameSvgItem {
                     width: chatContent.width
@@ -817,6 +833,7 @@ PlasmoidItem {
                 anchors.right: parent.right
                 width: root.popupBorderWidth
                 clip: true
+                visible: !root.blurBackground
 
                 KSvg.FrameSvgItem {
                     x: -(chatContent.width - root.popupBorderWidth)
@@ -831,11 +848,11 @@ PlasmoidItem {
             Rectangle {
                 id: headerBar
                 anchors.top: parent.top
-                anchors.topMargin: root.popupBorderWidth
+                anchors.topMargin: root.contentInset
                 anchors.left: parent.left
-                anchors.leftMargin: root.popupBorderWidth
+                anchors.leftMargin: root.contentInset
                 anchors.right: parent.right
-                anchors.rightMargin: root.popupBorderWidth
+                anchors.rightMargin: root.contentInset
                 height: 34
                 color: "#181825"
                 z: 30
@@ -891,11 +908,11 @@ PlasmoidItem {
                 id: webView
                 anchors.top: headerBar.bottom
                 anchors.left: parent.left
-                anchors.leftMargin: root.popupBorderWidth
+                anchors.leftMargin: root.contentInset
                 anchors.right: parent.right
-                anchors.rightMargin: root.popupBorderWidth
+                anchors.rightMargin: root.contentInset
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: root.popupBorderWidth
+                anchors.bottomMargin: root.contentInset
                 profile: webProfile
                 url: "about:blank"
                 visible: root.serverAlive
@@ -912,11 +929,11 @@ PlasmoidItem {
             Rectangle {
                 anchors.top: headerBar.bottom
                 anchors.left: parent.left
-                anchors.leftMargin: root.popupBorderWidth
+                anchors.leftMargin: root.contentInset
                 anchors.right: parent.right
-                anchors.rightMargin: root.popupBorderWidth
+                anchors.rightMargin: root.contentInset
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: root.popupBorderWidth
+                anchors.bottomMargin: root.contentInset
                 visible: !root.serverAlive
                 opacity: root.webViewOpacity
                 color: "#1e1e2e"
@@ -953,7 +970,9 @@ PlasmoidItem {
             MouseArea {
                 id: cornerGrip
                 anchors.right: parent.right
+                anchors.rightMargin: -root.themeFrameMargin
                 anchors.bottom: parent.bottom
+                anchors.bottomMargin: -root.themeFrameMargin
                 width: 20
                 height: 20
                 hoverEnabled: true
@@ -983,6 +1002,7 @@ PlasmoidItem {
             MouseArea {
                 id: rightGrip
                 anchors.right: parent.right
+                anchors.rightMargin: -root.themeFrameMargin
                 anchors.top: headerBar.bottom
                 anchors.bottom: cornerGrip.top
                 width: 6
@@ -1000,6 +1020,7 @@ PlasmoidItem {
                 anchors.left: parent.left
                 anchors.right: cornerGrip.left
                 anchors.bottom: parent.bottom
+                anchors.bottomMargin: -root.themeFrameMargin
                 height: 6
                 cursorShape: Qt.SizeVerCursor
                 z: 40

@@ -17,6 +17,7 @@ KCM.SimpleKCM {
     property alias cfg_popupHeight: spinPopupHeight.value
     property alias cfg_alwaysOnTop: checkAlwaysOnTop.checked
     property alias cfg_webViewOpacity: spinWebViewOpacity.value
+    property alias cfg_blurBackground: checkBlurBackground.checked
     property alias cfg_petId: page.selectedPet
     property alias cfg_petSize: spinPetSize.value
     property alias cfg_petFps: spinPetFps.value
@@ -156,6 +157,11 @@ KCM.SimpleKCM {
                 stepSize: 5
                 textFromValue: function(value) { return value + "%" }
             }
+        }
+
+        QQC2.CheckBox {
+            id: checkBlurBackground
+            text: i18n("Blur the background")
         }
 
         RowLayout {
