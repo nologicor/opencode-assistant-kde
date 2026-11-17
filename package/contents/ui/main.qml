@@ -212,6 +212,7 @@ PlasmoidItem {
         id: webViewRepaintTimer
         interval: 120
         onTriggered: {
+            root.webViewCovered = false
             if (webView) {
                 webView.update()
                 webView.forceActiveFocus()
@@ -355,6 +356,7 @@ PlasmoidItem {
     // plain load lands on the "Authenticate" screen. Minting a pairing code and opening its
     // /auth/connect link sets the session cookie, exactly like `opencode pair` in a browser.
     property bool webLoaded: false
+    property bool webViewCovered: false
     property bool pairing: false
 
     function openWebUi() {
@@ -773,6 +775,7 @@ PlasmoidItem {
             if (visible) {
                 requestActivate()
                 raise()
+                root.webViewCovered = true
                 webViewRepaintTimer.restart()
                 Qt.callLater(function() {
                     if (webView) webView.update()
@@ -935,7 +938,7 @@ PlasmoidItem {
                 anchors.bottomMargin: root.contentInset
                 profile: webProfile
                 url: "about:blank"
-                visible: root.serverAlive
+                visible: root.serverAlive && !root.webViewCovered
                 opacity: root.webViewOpacity
                 backgroundColor: "#1e1e2e"
 
@@ -943,6 +946,21 @@ PlasmoidItem {
                 onNewWindowRequested: (request) => {
                     Qt.openUrlExternally(request.url)
                 }
+            }
+
+            // Opaque cover while QtWebEngine rebuilds its first frame. Without
+            // it, a translucent popup briefly shows the animated pet behind it.
+            Rectangle {
+                anchors.top: headerBar.bottom
+                anchors.left: parent.left
+                anchors.leftMargin: root.contentInset
+                anchors.right: parent.right
+                anchors.rightMargin: root.contentInset
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.contentInset
+                visible: root.webViewCovered
+                color: "#1e1e2e"
+                z: 20
             }
 
             // loading overlay
