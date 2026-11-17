@@ -15,6 +15,7 @@ KCM.SimpleKCM {
     property alias cfg_password: textPassword.text
     property alias cfg_popupWidth: spinPopupWidth.value
     property alias cfg_popupHeight: spinPopupHeight.value
+    property alias cfg_alwaysOnTop: checkAlwaysOnTop.checked
     property alias cfg_petId: page.selectedPet
     property alias cfg_petSize: spinPetSize.value
     property alias cfg_petFps: spinPetFps.value
@@ -137,6 +138,11 @@ KCM.SimpleKCM {
                 to: 2000
                 stepSize: 20
             }
+        }
+
+        QQC2.CheckBox {
+            id: checkAlwaysOnTop
+            text: i18n("Always on top")
         }
 
         RowLayout {

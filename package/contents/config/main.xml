@@ -27,6 +27,10 @@
       <min>240</min>
       <max>2000</max>
     </entry>
+    <entry name="alwaysOnTop" type="Bool">
+      <label>Keep the popup above other windows.</label>
+      <default>true</default>
+    </entry>
     <entry name="petId" type="String">
       <label>Identifier of the pet shown in the widget.</label>
       <default>tux</default>

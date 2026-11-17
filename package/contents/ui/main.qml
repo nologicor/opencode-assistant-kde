@@ -64,6 +64,12 @@ PlasmoidItem {
     readonly property int popupW: popupResizing ? popupDragW : Plasmoid.configuration.popupWidth
     readonly property int popupH: popupResizing ? popupDragH : Plasmoid.configuration.popupHeight
 
+    // The active Layan theme uses an 8px dialog border. The popup draws its own
+    // frame so this can be half of that thickness instead of being fixed by the
+    // theme.
+    readonly property int popupBorderWidth: 4
+    readonly property bool alwaysOnTop: Plasmoid.configuration.alwaysOnTop !== false
+
     // resize gesture origin (screen coordinates) and starting size
     property real resizeOriginX: 0
     property real resizeOriginY: 0
@@ -301,6 +307,26 @@ PlasmoidItem {
         openWebUi()
     }
 
+    // Bring an already-open popup back to the front without recreating it.
+    function raiseWeb() {
+        if (!chatDialog || !chatDialog.visible) return
+        chatDialog.requestActivate()
+        chatDialog.raise()
+    }
+
+    // PlasmaQuick turns a Normal dialog into a Dock when the stay-on-top flag
+    // is set, so the role and flag must be applied in the right order.
+    function applyWindowMode() {
+        if (!chatDialog) return
+        if (root.alwaysOnTop) {
+            chatDialog.type = PlasmaCore.Dialog.AppletPopup
+            chatDialog.flags = Qt.Dialog | Qt.WindowStaysOnTopHint
+        } else {
+            chatDialog.flags = Qt.Dialog
+            chatDialog.type = PlasmaCore.Dialog.Normal
+        }
+    }
+
     // Sign in before showing the UI: the app shell does not reliably consume ?auth_token=, and a
     // plain load lands on the "Authenticate" screen. Minting a pairing code and opening its
     // /auth/connect link sets the session cookie, exactly like `opencode pair` in a browser.
@@ -436,12 +462,15 @@ PlasmoidItem {
         if (!Plasmoid.configuration.password) {
             unitSource.connectSource("systemctl --user show opencode-web.service -p Environment --value")
         }
+        root.applyWindowMode()
     }
 
     Component.onDestruction: {
         healthTimer.stop()
         stateTimer.stop()
     }
+
+    onAlwaysOnTopChanged: applyWindowMode()
 
     onServerAliveChanged: {
         if (serverAlive) {
@@ -675,10 +704,13 @@ PlasmoidItem {
                     if (onPet) {
                         // click on the pet — wave and toggle the opencode popup
                         pet.wave()
-                        if (chatDialog.visible) {
-                            chatDialog.visible = false
-                        } else {
+                        if (!chatDialog.visible) {
                             root.openWeb()
+                        } else if (!root.alwaysOnTop && !chatDialog.active) {
+                            // The popup is behind another window: bring it forward.
+                            root.raiseWeb()
+                        } else {
+                            chatDialog.visible = false
                         }
                     } else {
                         // click on empty area — the pet walks there
@@ -702,23 +734,42 @@ PlasmoidItem {
     PlasmaCore.Dialog {
         id: chatDialog
         location: PlasmaCore.Types.Floating
+        // The role and stay-on-top flag are applied by applyWindowMode() in the
+        // correct order, both at startup and when the setting changes.
         type: PlasmaCore.Dialog.AppletPopup
+        flags: Qt.Dialog
         hideOnWindowDeactivate: false
-        backgroundHints: PlasmaCore.Dialog.SolidBackground
+        backgroundHints: PlasmaCore.Dialog.NoBackground
         visible: false
 
-        mainItem: Item {
+        onVisibleChanged: {
+            if (visible) {
+                requestActivate()
+                raise()
+            }
+        }
+
+        mainItem: Rectangle {
             id: chatContent
-            width: root.popupW
-            height: root.popupH
+            // Keep the configured popup size as the content size and add the
+            // custom border around it.
+            width: root.popupW + 2 * root.popupBorderWidth
+            height: root.popupH + 2 * root.popupBorderWidth
+            color: "#1e1e2e"
+            radius: 8
+            border.width: root.popupBorderWidth
+            border.color: "#313244"
             clip: true
 
             // slim header: title + status + close
             Rectangle {
                 id: headerBar
                 anchors.top: parent.top
+                anchors.topMargin: root.popupBorderWidth
                 anchors.left: parent.left
+                anchors.leftMargin: root.popupBorderWidth
                 anchors.right: parent.right
+                anchors.rightMargin: root.popupBorderWidth
                 height: 34
                 color: "#181825"
                 z: 30
@@ -774,8 +825,11 @@ PlasmoidItem {
                 id: webView
                 anchors.top: headerBar.bottom
                 anchors.left: parent.left
+                anchors.leftMargin: root.popupBorderWidth
                 anchors.right: parent.right
+                anchors.rightMargin: root.popupBorderWidth
                 anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.popupBorderWidth
                 profile: webProfile
                 url: "about:blank"
                 visible: root.serverAlive
@@ -791,8 +845,11 @@ PlasmoidItem {
             Rectangle {
                 anchors.top: headerBar.bottom
                 anchors.left: parent.left
+                anchors.leftMargin: root.popupBorderWidth
                 anchors.right: parent.right
+                anchors.rightMargin: root.popupBorderWidth
                 anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.popupBorderWidth
                 visible: !root.serverAlive
                 color: "#1e1e2e"
                 z: 10

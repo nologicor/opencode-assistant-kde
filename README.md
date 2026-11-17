@@ -21,6 +21,7 @@ It works both on the desktop and as a panel popup widget.
 - **Offline status dot** — a small fixed red dot (10px) appears only while the server is offline; it fades out when the server comes online.
 - **Popup anchored to the pet** — click the pet to open a `WebEngineView` popup that loads the OpenCode web UI served by `opencode serve` on localhost. The popup opens near the pet's head and follows it when the pet moves.
 - **Resizable popup** — drag the bottom-right handle to resize the popup (width/height are remembered).
+- **Optional always-on-top** — keep the OpenCode panel above other windows, or let it go behind them; clicking the pet raises it again.
 - **No browser** — the web UI runs embedded in the popup, not in an external browser.
 - **Local server authentication** — the embedded web UI signs in through a one-time pairing code; credentials are never put in the URL.
 - **Settings** — port, hostname, pet selection, pet size, animation speed (FPS), and popup dimensions.
