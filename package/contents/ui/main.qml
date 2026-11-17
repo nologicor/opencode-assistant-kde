@@ -6,6 +6,7 @@ import QtWebEngine
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.plasma.plasmoid
+import org.kde.ksvg as KSvg
 
 PlasmoidItem {
     id: root
@@ -63,6 +64,20 @@ PlasmoidItem {
     property int popupDragH: 0
     readonly property int popupW: popupResizing ? popupDragW : Plasmoid.configuration.popupWidth
     readonly property int popupH: popupResizing ? popupDragH : Plasmoid.configuration.popupHeight
+
+    // The Layan theme uses an 8px dialog border. The popup draws the theme
+    // background itself and insets its content by half that thickness, so the
+    // visible border follows the system theme but stays 4px wide.
+    readonly property int popupBorderWidth: 4
+    readonly property bool alwaysOnTop: Plasmoid.configuration.alwaysOnTop !== false
+    readonly property real webViewOpacity: Math.max(0.2, Math.min(1, (Plasmoid.configuration.webViewOpacity || 100) / 100))
+    readonly property bool blurBackground: Plasmoid.configuration.blurBackground === true
+
+    // The Plasma dialog background has its own margins. When blur is enabled
+    // the dialog draws that background itself, so shift the content outwards by
+    // the difference to keep the visible border at popupBorderWidth.
+    readonly property int themeFrameMargin: chatDialog && chatDialog.margins ? Math.round(chatDialog.margins.left) : 0
+    readonly property int contentInset: popupBorderWidth - themeFrameMargin
 
     // resize gesture origin (screen coordinates) and starting size
     property real resizeOriginX: 0
@@ -190,6 +205,21 @@ PlasmoidItem {
         onTriggered: pollState()
     }
 
+    // QtWebEngine stops painting while its window is hidden. Force a frame
+    // after the popup is shown again, otherwise the web content can stay blank
+    // until the pointer moves over it.
+    Timer {
+        id: webViewRepaintTimer
+        interval: 120
+        onTriggered: {
+            if (webView) {
+                webView.update()
+                webView.forceActiveFocus()
+            }
+            chatDialog.update()
+        }
+    }
+
     // Last resort when no password is available to sign in with.
     Timer {
         id: fallbackTimer
@@ -299,6 +329,26 @@ PlasmoidItem {
             spawnServer()
         }
         openWebUi()
+    }
+
+    // Bring an already-open popup back to the front without recreating it.
+    function raiseWeb() {
+        if (!chatDialog || !chatDialog.visible) return
+        chatDialog.requestActivate()
+        chatDialog.raise()
+    }
+
+    // PlasmaQuick turns a Normal dialog into a Dock when the stay-on-top flag
+    // is set, so the role and flag must be applied in the right order.
+    function applyWindowMode() {
+        if (!chatDialog) return
+        if (root.alwaysOnTop) {
+            chatDialog.type = PlasmaCore.Dialog.AppletPopup
+            chatDialog.flags = Qt.Dialog | Qt.WindowStaysOnTopHint
+        } else {
+            chatDialog.flags = Qt.Dialog
+            chatDialog.type = PlasmaCore.Dialog.Normal
+        }
     }
 
     // Sign in before showing the UI: the app shell does not reliably consume ?auth_token=, and a
@@ -436,12 +486,15 @@ PlasmoidItem {
         if (!Plasmoid.configuration.password) {
             unitSource.connectSource("systemctl --user show opencode-web.service -p Environment --value")
         }
+        root.applyWindowMode()
     }
 
     Component.onDestruction: {
         healthTimer.stop()
         stateTimer.stop()
     }
+
+    onAlwaysOnTopChanged: applyWindowMode()
 
     onServerAliveChanged: {
         if (serverAlive) {
@@ -675,10 +728,13 @@ PlasmoidItem {
                     if (onPet) {
                         // click on the pet — wave and toggle the opencode popup
                         pet.wave()
-                        if (chatDialog.visible) {
-                            chatDialog.visible = false
-                        } else {
+                        if (!chatDialog.visible) {
                             root.openWeb()
+                        } else if (!root.alwaysOnTop && !chatDialog.active) {
+                            // The popup is behind another window: bring it forward.
+                            root.raiseWeb()
+                        } else {
+                            chatDialog.visible = false
                         }
                     } else {
                         // click on empty area — the pet walks there
@@ -702,23 +758,121 @@ PlasmoidItem {
     PlasmaCore.Dialog {
         id: chatDialog
         location: PlasmaCore.Types.Floating
+        // The role and stay-on-top flag are applied by applyWindowMode() in the
+        // correct order, both at startup and when the setting changes.
         type: PlasmaCore.Dialog.AppletPopup
+        flags: Qt.Dialog
         hideOnWindowDeactivate: false
-        backgroundHints: PlasmaCore.Dialog.SolidBackground
+        // StandardBackground draws the Plasma theme frame and enables KWin
+        // blur-behind. NoBackground keeps the center transparent when blur is
+        // disabled.
+        backgroundHints: root.blurBackground ? PlasmaCore.Dialog.StandardBackground : PlasmaCore.Dialog.NoBackground
         visible: false
+
+        onVisibleChanged: {
+            if (visible) {
+                requestActivate()
+                raise()
+                webViewRepaintTimer.restart()
+                Qt.callLater(function() {
+                    if (webView) webView.update()
+                    chatDialog.update()
+                })
+            }
+        }
 
         mainItem: Item {
             id: chatContent
-            width: root.popupW
-            height: root.popupH
-            clip: true
+            // Keep the configured popup size as the content size. When blur is
+            // enabled the themed dialog adds its own margins around mainItem,
+            // so subtract them and let the content overlap the inner half of the
+            // theme border.
+            width: root.popupW + 2 * root.popupBorderWidth - 2 * root.themeFrameMargin
+            height: root.popupH + 2 * root.popupBorderWidth - 2 * root.themeFrameMargin
+            clip: false
+
+            // Draw only the outer half of the Plasma theme frame when blur is
+            // off. With blur on, the dialog's own StandardBackground draws the
+            // full frame and KWin blurs what is behind it.
+            Item {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: root.popupBorderWidth
+                clip: true
+                visible: !root.blurBackground
+
+                KSvg.FrameSvgItem {
+                    width: chatContent.width
+                    height: chatContent.height
+                    imagePath: "dialogs/background"
+                    prefix: "solid/"
+                }
+            }
+
+            Item {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: root.popupBorderWidth
+                clip: true
+                visible: !root.blurBackground
+
+                KSvg.FrameSvgItem {
+                    y: -(chatContent.height - root.popupBorderWidth)
+                    width: chatContent.width
+                    height: chatContent.height
+                    imagePath: "dialogs/background"
+                    prefix: "solid/"
+                }
+            }
+
+            Item {
+                anchors.top: parent.top
+                anchors.topMargin: root.popupBorderWidth
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.popupBorderWidth
+                anchors.left: parent.left
+                width: root.popupBorderWidth
+                clip: true
+                visible: !root.blurBackground
+
+                KSvg.FrameSvgItem {
+                    width: chatContent.width
+                    height: chatContent.height
+                    imagePath: "dialogs/background"
+                    prefix: "solid/"
+                }
+            }
+
+            Item {
+                anchors.top: parent.top
+                anchors.topMargin: root.popupBorderWidth
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.popupBorderWidth
+                anchors.right: parent.right
+                width: root.popupBorderWidth
+                clip: true
+                visible: !root.blurBackground
+
+                KSvg.FrameSvgItem {
+                    x: -(chatContent.width - root.popupBorderWidth)
+                    width: chatContent.width
+                    height: chatContent.height
+                    imagePath: "dialogs/background"
+                    prefix: "solid/"
+                }
+            }
 
             // slim header: title + status + close
             Rectangle {
                 id: headerBar
                 anchors.top: parent.top
+                anchors.topMargin: root.contentInset
                 anchors.left: parent.left
+                anchors.leftMargin: root.contentInset
                 anchors.right: parent.right
+                anchors.rightMargin: root.contentInset
                 height: 34
                 color: "#181825"
                 z: 30
@@ -774,11 +928,15 @@ PlasmoidItem {
                 id: webView
                 anchors.top: headerBar.bottom
                 anchors.left: parent.left
+                anchors.leftMargin: root.contentInset
                 anchors.right: parent.right
+                anchors.rightMargin: root.contentInset
                 anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.contentInset
                 profile: webProfile
                 url: "about:blank"
                 visible: root.serverAlive
+                opacity: root.webViewOpacity
                 backgroundColor: "#1e1e2e"
 
 
@@ -791,9 +949,13 @@ PlasmoidItem {
             Rectangle {
                 anchors.top: headerBar.bottom
                 anchors.left: parent.left
+                anchors.leftMargin: root.contentInset
                 anchors.right: parent.right
+                anchors.rightMargin: root.contentInset
                 anchors.bottom: parent.bottom
+                anchors.bottomMargin: root.contentInset
                 visible: !root.serverAlive
+                opacity: root.webViewOpacity
                 color: "#1e1e2e"
                 z: 10
 
@@ -828,7 +990,9 @@ PlasmoidItem {
             MouseArea {
                 id: cornerGrip
                 anchors.right: parent.right
+                anchors.rightMargin: -root.themeFrameMargin
                 anchors.bottom: parent.bottom
+                anchors.bottomMargin: -root.themeFrameMargin
                 width: 20
                 height: 20
                 hoverEnabled: true
@@ -858,6 +1022,7 @@ PlasmoidItem {
             MouseArea {
                 id: rightGrip
                 anchors.right: parent.right
+                anchors.rightMargin: -root.themeFrameMargin
                 anchors.top: headerBar.bottom
                 anchors.bottom: cornerGrip.top
                 width: 6
@@ -875,6 +1040,7 @@ PlasmoidItem {
                 anchors.left: parent.left
                 anchors.right: cornerGrip.left
                 anchors.bottom: parent.bottom
+                anchors.bottomMargin: -root.themeFrameMargin
                 height: 6
                 cursorShape: Qt.SizeVerCursor
                 z: 40
